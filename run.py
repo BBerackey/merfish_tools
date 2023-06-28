@@ -27,25 +27,30 @@ def create_barcode_table(merlin_result, masks, cell_links):
     # plotting.fov_error_bar(per_fov_error)
     # plotting.fov_error_spatial(per_fov_error, positions)
     # plotting.spatial_transcripts_per_fov(bcs, positions)
-    barcodes.mark_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True))
-    barcodes.assign_to_cells(bcs, masks)
+    # barcodes.mark_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True))
+    barcodes.trim_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True),fov_size_pxl= masks.positions.fov_size_pxl)
+    barcodes.assign_to_cells(bcs, masks,fov_size_pxl = masks.positions.fov_size_pxl)
     barcodes.calculate_global_coordinates(
-        bcs, masks.positions.positions
+        bcs, masks.positions.positions,
+        fov_size_pxl = masks.positions.fov_size_pxl,
+        fov_size=masks.positions.fov_size
     )  # Replace with util.fov_to_global_coordinates
     barcodes.link_cell_ids(bcs, cell_links)
-    for dataset in config.get("reference_counts"):
-        plotting.rnaseq_correlation(bcs, dataset)
+    # for dataset in config.get("reference_counts"):
+    #     plotting.rnaseq_correlation(bcs, dataset)
     return bcs
 
 
 def analyze_experiment():
     stats.savefile = config.path("stats.json")
     merlin_result = fileio.MerlinOutput(config.get("merlin_folder"))
+    imagedata = None
+
     if config.has("image_folder"):
         imagedata = fileio.ImageDataset(
             config.get("image_folder"),
-            data_organization=merlin_result.load_data_organization(),
-            segdict={"hyb": 0, "frame": 53},
+            config.get("merlin_folder"),
+            data_organization=merlin_result.load_data_organization()
         )
     output = fileio.MerfishAnalysis(config.get("output_folder"))
     masks = segmentation.CellSegmentation(
@@ -53,6 +58,7 @@ def analyze_experiment():
         output=output,
         positions=merlin_result.load_fov_positions(),
         imagedata=imagedata,
+        channel=config.get("segmentation_channel")
     )
 
     positions = merlin_result.load_fov_positions()
@@ -63,6 +69,8 @@ def analyze_experiment():
     # celldata = fileio.load_cell_metadata(config.path("cell_metadata.csv"))
     # cell_links = fileio.load_cell_links(config.path("cell_links.txt"))
     # else:
+    #masks.del_metadata_cache()
+
     celldata = masks.metadata
     cell_links = masks.linked_cells
     stats.set("Segmented cells", len(celldata))
@@ -82,7 +90,8 @@ def analyze_experiment():
     plotting.counts_per_cell_histogram(counts)
     plotting.genes_detected_per_cell_histogram(counts)
     codebook = merlin_result.load_codebook()
-    adata = cellgene.create_scanpy_object(counts, celldata, positions, codebook)
+    # adata = cellgene.create_scanpy_object(counts, celldata, positions, codebook)
+    adata = cellgene.create_scanpy_object(output ,positions = positions,codebook = codebook)
     adata.write(config.path("scanpy_object.h5ad"))
     cellgene.normalize(adata)
     n_pcs = cellgene.optimize_number_PCs(adata)
@@ -139,6 +148,10 @@ def main():
         default="",
     )
     args = parser.parse_args()
+
+    import pdb
+    pdb.set_trace()
+
     config.load(args)
     analyze_experiment()
 

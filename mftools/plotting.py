@@ -46,7 +46,8 @@ def drift_histogram(mfx) -> None:
     )
     g.map_dataframe(sns.histplot, x="X drift", y="Y drift", cmap="viridis")
     g.set(ylabel="Y drift", xlabel="X drift")
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
     plt.tight_layout()
     plt.savefig(config.path("drift_histogram.png"), dpi=300)
 
@@ -66,7 +67,8 @@ def exact_vs_corrected() -> None:
         ha="center",
         va="bottom",
     )
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
 
 
 @plot(save="confidence_ratio.png")
@@ -90,7 +92,8 @@ def confidence_ratios(per_gene_error) -> None:
     plt.xlim(1, len(gene_stats))
     plt.xlabel("Rank")
     plt.ylabel("Confidence ratio")
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
 
 
 def per_bit_error_bar(per_bit_error, colors) -> None:
@@ -111,7 +114,8 @@ def per_bit_error_bar(per_bit_error, colors) -> None:
     )
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-        axs.grid(b=False)
+        #axs.grid(b=False)
+        axs.grid(visible=False)
     ax.savefig(config.path("bit_error_bar.png"), dpi=300)
 
 
@@ -134,7 +138,8 @@ def per_bit_error_line(per_bit_error, colors) -> None:
     )
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-        axs.grid(b=False)
+        #axs.grid(b=False)
+        axs.grid(visible=False)
     ax.savefig(config.path("bit_error_line.png"), dpi=300)
 
 
@@ -151,7 +156,8 @@ def per_hyb_error(per_bit_error) -> None:
     )
     for axs in g.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-        axs.grid(b=False)
+        #axs.grid(b=False)
+        axs.grid(visible=False)
     g.set(ylabel="Error rate")
     g.axes.flat[-1].set_xlabel("Hybridization round")
     plt.tight_layout()
@@ -174,7 +180,8 @@ def per_color_error(per_bit_error, colors) -> None:
     )
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-        axs.grid(b=False)
+        #axs.grid(b=False)
+        axs.grid(visible=False)
     plt.tight_layout()
     ax.savefig(config.path("color_error.png"), dpi=300)
 
@@ -204,7 +211,8 @@ def fov_error_bar(per_fov_error) -> None:
     fovplot(per_fov_error[per_fov_error["Error type"] == "0->1"], ax[1])
     ax[0].set_title("1->0 error rate")
     ax[1].set_title("0->1 error rate")
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
     plt.tight_layout()
     plt.savefig(config.path("fov_error.png"), dpi=300)
 
@@ -292,7 +300,8 @@ def counts_per_cell_histogram(counts):
     sns.histplot(counts.apply(np.sum, axis=1), bins=50)
     plt.xlabel("Transcript count")
     plt.ylabel("Cell count")
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
 
 
 @plot(save="genes_detected_per_cell.png", figsize=(7, 5))
@@ -300,7 +309,8 @@ def genes_detected_per_cell_histogram(counts):
     sns.histplot(counts.astype(bool).sum(axis=1), binwidth=1)
     plt.xlabel("Genes detected")
     plt.ylabel("Cell count")
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
 
 
 @plot(save="spatial_transcripts_per_fov.png", figsize=(8, 10))
@@ -341,7 +351,8 @@ def fov_number_map(mfx):
     plt.scatter(x=mfx.positions["x"], y=mfx.positions["y"], c="w")
     for i, row in mfx.positions.iterrows():
         plt.text(x=row["x"], y=row["y"], s=row.name)
-    plt.grid(b=False)
+    #plt.grid(b=False)
+    plt.grid(visible=False)
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(config.path("fov_number_map.png"), dpi=150)

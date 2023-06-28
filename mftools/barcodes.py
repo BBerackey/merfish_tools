@@ -51,6 +51,9 @@ from . import stats
 from . import config
 
 
+# global variable to hold number of bits
+no_bits = 0
+
 def process_merlin_barcodes(
     barcodes: pd.DataFrame,
     neighbors: faiss.IndexFlatL2,
@@ -71,7 +74,7 @@ def process_merlin_barcodes(
     df = barcodes[["barcode_id", "fov", "x", "y", "z"]]
     df = df.reset_index(drop=True)
     df["gene"] = res["name"]
-    df["error_type"] = res["bits"] - 4
+    df["error_type"] = res["bits"] - 4 # the reason we are subtracting four is because each barcode(bit pattern) is suppose to have 4 onbits
     try:
         df["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0).astype(int)
     except KeyError:
@@ -81,8 +84,19 @@ def process_merlin_barcodes(
 
 def expand_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     """Add codes for every possible bit flip to a codebook."""
+    #TODO: modify to accomodate code for vizgen codebook
+    # tentative solution: rename columns
+    global no_bits
+    col_mapper = {x:f'bit{i}' for i,x in enumerate(codebook.columns)
+                  if (i !=0) and (i != codebook.shape[1]-1)}
+    col_mapper.update({codebook.columns[0]:codebook.columns[0],
+                       codebook.columns[-1]:codebook.columns[-1]})
+    codebook = codebook.rename(col_mapper,axis = 'columns')
+
     books = [codebook]
     bits = len(codebook.filter(like="bit").columns)
+    no_bits = bits # update the global variables
+
     for bit in range(1, bits + 1):
         flip = codebook.copy()
         flip[f"bit{bit}"] = (~flip[f"bit{bit}"].astype(bool)).astype(int)
@@ -152,9 +166,16 @@ def make_table(merlin_result: fileio.MerlinOutput, codebook: pd.DataFrame) -> pd
     neighbors = faiss.IndexFlatL2(X.shape[1])
     neighbors.add(X)
     dfs = []
-    for fov in tqdm(range(merlin_result.n_fovs()), desc="Preparing barcodes"):
+    positions = merlin_result.load_fov_positions()
+    # for fov in tqdm(range(merlin_result.n_fovs()), desc="Preparing barcodes"):
+    # Note: it is better to calculate number of fov based on length of positions.csv file
+    # rather than number of .dax files, since there could be fovs not images due to focus lock problem
+    for fov in tqdm(range(len(positions)), desc="Preparing barcodes"):
         try:
-            barcodes = merlin_result.load_filtered_barcodes(fov)
+            #TODO: comeup with a format the generaizes or improve way to load
+            # different file naming scheme
+            # for vizgen dataset, .00{fov}
+            barcodes = merlin_result.load_filtered_barcodes(fov) # added by bereket
         except FileNotFoundError:
             continue
         dfs.append(process_merlin_barcodes(barcodes, neighbors, codebook))
@@ -163,22 +184,23 @@ def make_table(merlin_result: fileio.MerlinOutput, codebook: pd.DataFrame) -> pd
     return df
 
 
-def calculate_global_coordinates(barcodes: pd.DataFrame, positions: pd.DataFrame) -> None:
+def calculate_global_coordinates(barcodes: pd.DataFrame, positions: pd.DataFrame,fov_size_pxl = 2048,fov_size = 220) -> None:
     """Add global_x and global_y columns to barcodes."""
 
     def convert_to_global(group: pd.DataFrame) -> pd.DataFrame:
         """Calculate the global coordinates for a single FOV."""
+        # note the inner function can access the namespace of the outer function
         fov = int(group.iloc[0]["fov"])
         ypos = positions.loc[fov][0]
         xpos = positions.loc[fov][1]
-        group["global_y"] = 220 * (2048 - group["y"]) / 2048 + ypos
-        group["global_x"] = 220 * group["x"] / 2048 + xpos
+        group["global_y"] = fov_size * (fov_size_pxl - group["y"]) / fov_size_pxl + ypos
+        group["global_x"] = fov_size * group["x"] / fov_size_pxl + xpos
         return group[["global_x", "global_y"]]
 
     barcodes[["global_x", "global_y"]] = barcodes.groupby("fov", group_keys=False).apply(convert_to_global)
 
 
-def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, flip_y=True):
+def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, flip_y=True,fov_size_pxl = 2048):
     for fov in tqdm(np.unique(barcodes["fov"]), desc="Assigning barcodes to cells"):
         group = barcodes.loc[barcodes["fov"] == fov]
         if drifts is not None:
@@ -189,19 +211,22 @@ def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, 
         x = (group["x"] + xdrift).round() // config.get("scale")
         y = (group["y"] + ydrift).round() // config.get("scale")
         if flip_x:
-            x = 2048 - x
+            x = fov_size_pxl - x
         if flip_y:
-            y = 2048 - y
+            y = fov_size_pxl - y
         if transpose:
             x, y = y, x
-        x = x.clip(upper=2047).astype(int)
-        y = y.clip(upper=2047).astype(int)
-        if len(masks[fov].shape) == 3:
+        x = x.clip(upper=fov_size_pxl-1).astype(int)
+        y = y.clip(upper=fov_size_pxl- 1).astype(int)
+        if len(masks[int(fov)].shape) == 3: # note fov is a string not an int in this for loop
+                                       # but i don't think it will affect the loading process
+                                       # also since we are using it in arthmatic operation below
+                                       # better to convert it to int
             # TODO: Remove hard-coding of scale
             z = (group["z"].round() / 6.333333).astype(int)
-            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[fov][z, x, y] + 10000 * fov
+            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][z, x, y] + 10000 * int(fov)
         else:
-            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[fov][x, y] + 10000 * fov
+            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][x, y] + 10000 * int(fov)
     barcodes.loc[barcodes["cell_id"] % 10000 == 0, "cell_id"] = 0
     barcodes["cell_id"] = barcodes["cell_id"].astype(int)
     stats.set("Barcodes assigned to cells", len(barcodes[barcodes["cell_id"] != 0]))
@@ -216,7 +241,7 @@ def link_cell_ids(barcodes, cell_links):
     barcodes["cell_id"] = barcodes["cell_id"].apply(lambda cid: link_map[cid] if cid in link_map else cid)
 
 
-def trim_barcodes_in_overlaps(barcodes, trim_overlaps):
+def trim_barcodes_in_overlaps(barcodes, trim_overlaps,fov_size_pxl = 2048):
     xstarts = defaultdict(list)
     xstops = defaultdict(list)
     ystarts = defaultdict(list)
@@ -226,11 +251,11 @@ def trim_barcodes_in_overlaps(barcodes, trim_overlaps):
             if overlap.xslice.start:
                 xstarts[overlap.xslice.start].append(overlap.fov)
             if overlap.xslice.stop:
-                xstops[2048 // config.get("scale") + overlap.xslice.stop].append(overlap.fov)
+                xstops[fov_size_pxl // config.get("scale") + overlap.xslice.stop].append(overlap.fov)
             if overlap.yslice.start:
                 ystarts[overlap.yslice.start].append(overlap.fov)
             if overlap.yslice.stop:
-                ystops[2048 // config.get("scale") + overlap.yslice.stop].append(overlap.fov)
+                ystops[fov_size_pxl // config.get("scale") + overlap.yslice.stop].append(overlap.fov)
     for xstart, fovs in xstarts.items():
         barcodes = barcodes[(~barcodes["fov"].isin(fovs)) | (barcodes["x"] // config.get("scale") <= xstart)]
     for ystart, fovs in ystarts.items():
@@ -255,9 +280,16 @@ def create_cell_by_gene_table(barcodes, drop_blank=False) -> pd.DataFrame:
 
 def count_unfiltered_barcodes(merlin_result: fileio.MerlinOutput) -> int:
     """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
+    positions = merlin_result.load_fov_positions()
     raw_count = 0
-    for fov in tqdm(range(merlin_result.n_fovs()), desc="Counting unfiltered barcodes"):
-        raw_count += merlin_result.count_raw_barcodes(fov)
+    for fov in tqdm(range(len(positions)), desc="Counting unfiltered barcodes"):
+        # try__except statement to handle missing fov data
+        try:
+            fov_raw_count = merlin_result.count_raw_barcodes(fov)
+        except FileNotFoundError:
+            continue
+        raw_count += fov_raw_count
+
     return raw_count
 
 
@@ -265,7 +297,8 @@ def get_per_bit_stats(gene: str, barcodes: pd.DataFrame) -> pd.DataFrame:
     k0 = len(barcodes[barcodes["error_type"] == 0])
     total = len(barcodes)
     rows = []
-    for bit in range(1, 23):
+    for bit in range(1, no_bits + 1): # no_bits is a global variable that is updated when expanding the codebook
+                                      # should contain the correct total number of bits
         errors = barcodes[barcodes["error_bit"] == bit]
         k1 = len(errors)
         if k1 > 0 and k0 > 0:

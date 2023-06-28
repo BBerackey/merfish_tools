@@ -18,7 +18,7 @@ from . import fileio
 Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
 
 
-def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
+def get_slice(diff: float, fovsize: int = 220, fov_size_pxl:int = 2048 , get_trim: bool = False) -> slice:
     """Get a slice for the region of an image overlapped by another FOV.
 
     :param diff: The amount of overlap in the global coordinate system.
@@ -32,12 +32,12 @@ def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
     if diff > 0:
         if get_trim:
             diff = fovsize - ((fovsize - diff) / 2)
-        overlap = 2048 * diff / fovsize
+        overlap = fov_size_pxl * diff / fovsize
         return slice(math.trunc(overlap), None)
     else:
         if get_trim:
             diff = -fovsize - ((-fovsize - diff) / 2)
-        overlap = 2048 * diff / fovsize
+        overlap = fov_size_pxl * diff / fovsize
         return slice(None, math.trunc(overlap))
 
 
@@ -60,7 +60,7 @@ def highpass_filter(image, sigma, window_size=None):
 
 class FOVPositions:
     def __init__(
-        self, positions: pd.DataFrame = None, filename: str = None, merlin: fileio.MerlinOutput = None
+        self, positions: pd.DataFrame = None,fov_size:int = 220,fov_size_pxl:int = 2048, filename: str = None, merlin: fileio.MerlinOutput = None
     ) -> None:
         if positions is not None:
             self.positions = positions
@@ -68,21 +68,23 @@ class FOVPositions:
             self.positions = fileio.load_fov_positions(filename)
         elif merlin is not None:
             self.positions = merlin.load_fov_positions()
+        self.fov_size = fov_size
+        self.fov_size_pxl = fov_size_pxl
 
     @functools.cached_property
     def overlaps(self):
         return self.find_fov_overlaps()
 
     def local_to_global_coordinates(self, x, y, fov):
-        global_x = 220 * x / 2048 + np.array(self.positions.loc[fov]["y"])
-        global_y = 220 * y / 2048 - np.array(self.positions.loc[fov]["x"])
+        global_x = self.fov_size * x / self.fov_size_pxl + np.array(self.positions.loc[fov]["y"])
+        global_y = self.fov_size * y / self.fov_size_pxl - np.array(self.positions.loc[fov]["x"])
         return global_x, global_y
 
-    def find_fov_overlaps(self, fovsize: int = 220, get_trim: bool = False) -> List[list]:
+    def find_fov_overlaps(self, get_trim: bool = False) -> List[list]:
         """Identify overlaps between FOVs."""
         neighbor_graph = NearestNeighbors()
         neighbor_graph = neighbor_graph.fit(self.positions)
-        res = neighbor_graph.radius_neighbors(self.positions, radius=fovsize, return_distance=True, sort_results=True)
+        res = neighbor_graph.radius_neighbors(self.positions, radius=self.fov_size, return_distance=True, sort_results=True)
         overlaps = []
         pairs = set()
         for i, (dists, fovs) in enumerate(zip(*res)):
@@ -93,7 +95,7 @@ class FOVPositions:
                     continue
                 pairs.update([(i, fov), (fov, i)])
                 diff = self.positions.loc[i] - self.positions.loc[fov]
-                _get_slice = functools.partial(get_slice, fovsize=fovsize, get_trim=get_trim)
+                _get_slice = functools.partial(get_slice, fovsize=self.fov_size,fov_size_pxl = self.fov_size_pxl, get_trim=get_trim)
                 overlaps.append(
                     [
                         Overlap(i, _get_slice(diff[0]), _get_slice(-diff[1])),

@@ -8,7 +8,9 @@ from typing import Optional, Dict, Sequence
 import h5py
 import numpy as np
 import pandas as pd
-
+import os
+from . import config
+import zarr
 
 def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
     """Find the filename for the segmentation mask of the given FOV.
@@ -33,6 +35,7 @@ def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
         # Cellpose numpy output
         # We prefer the npy file so we don't need the PIL library
         f"Conv_zscan_H0_F_0*{fov}_seg.npy",  # Homebuilt microscope filenames
+        f"Conv_zscan_H1_F_0*{fov}_seg.npy", # in case H1 is the first hyb and is used as reference
         f"stack_prestain_0*{fov}_seg.npy",  # MERSCOPE filenames
         # Try the png cellpose output if the numpy files aren't there
         f"stack_prestain_0*{fov}_cp_masks.png",
@@ -108,7 +111,7 @@ def _parse_int_list(inputString: str):
     return _parse_list(inputString, dtype=int)
 
 
-def load_data_organization(filename: str) -> pd.DataFrame:
+def load_data_organization(filename: Path) -> pd.DataFrame:
     """Load a data organization file into a pandas DataFrame.
 
     Args:
@@ -210,21 +213,36 @@ class MerlinOutput:
         path = self.root / "Decode" / "barcodes"
         return len(list(path.glob("barcode_data_*.h5")))
 
-    def load_raw_barcodes(self, fov: int) -> pd.DataFrame:
+    def load_raw_barcodes(self, fov: str) -> pd.DataFrame:
         """Load detailed barcode metadata from the Decode folder."""
-        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
-        return pd.read_hdf(path)
+        path = self.root / "Decode" / "barcodes"
+        return pd.read_hdf(
+                           self.infer_barcodefilename(path, fov)
+                          )
 
-    def count_raw_barcodes(self, fov: int) -> int:
+
+    def count_raw_barcodes(self, fov: str) -> int:
         """Count the number of barcodes for an fov in the Decode folder."""
-        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
-        barcodes = h5py.File(path, "r")
+        path = self.root / "Decode" / "barcodes"
+        barcodes = h5py.File(
+                            self.infer_barcodefilename(path, fov)
+                             , "r")
         return len(barcodes["barcodes/table"])
 
-    def load_filtered_barcodes(self, fov: int) -> pd.DataFrame:
+    def load_filtered_barcodes(self, fov: str) -> pd.DataFrame:
         """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
-        path = self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
-        return pd.read_hdf(path)
+        path = self.root / "AdaptiveFilterBarcodes" / "barcodes"
+        return pd.read_hdf(
+                         self.infer_barcodefilename(path, fov)
+                        ) # this is better since there could be variable zero padding in the filename
+
+
+    def infer_barcodefilename(self,path,fov):
+        expected_file = f'barcode_data_0*{fov}.h5'
+        for filename in path.glob('*.h5'):
+            if re.search(expected_file, str(filename)):
+                    return filename
+        raise FileNotFoundError(f"No barcode for found at {path} for FOV {fov}")
 
     def load_exported_barcodes(self) -> pd.DataFrame:
         """Load the exported barcode table."""
@@ -282,22 +300,50 @@ class MerlinOutput:
 
 
 class ImageDataset:
-    def __init__(self, folderpath: str, data_organization: str = None) -> None:
+    def __init__(self, folderpath: str, merlin_folderpath: str,data_organization: str = None) -> None:
         self.root = Path(folderpath)
+        self.merlin_root = Path(merlin_folderpath)
         if isinstance(data_organization, str):
             self.data_organization = load_data_organization(data_organization)
         elif isinstance(data_organization, pd.DataFrame):
             self.data_organization = data_organization
-        elif data_organization is None and Path(self.root, "dataorganization.csv").exists():
-            self.data_organization = load_data_organization(self.root / "dataorganization.csv")
+        elif data_organization is None and Path(self.merlin_root, "dataorganization.csv").exists():
+            self.data_organization = load_data_organization(self.merlin_root / "dataorganization.csv")
         if self.data_organization is not None:
             self.regex = {}
             for _, row in self.data_organization.iterrows():
                 self.regex[row["channelName"]] = re.compile(row["imageRegExp"])
-        if Path(self.root, "data").is_dir():
-            self.filenames = list(Path(self.root, "data").glob("*.dax"))
-        else:
-            self.filenames = list(self.root.glob("*.dax"))
+        #if Path(self.root, "data").is_dir():
+        #    self.filenames = list(Path(self.root, "data").glob("*.dax"))
+        #else:
+        #    self.filenames = list(self.root.glob("*.dax"))
+        self.filenames = self.get_image_file_names()
+        self.fov_size_pixel = self.get_fov_pixel_size()
+
+    # edited by bereket
+    def get_fov_pixel_size(self):
+        if len(self.filenames) > 0:
+            try:
+                with open(os.path.splitext(self.filenames[0])[0] + ".inf", encoding="utf8") as f:
+                    infodata = f.read()
+                m = re.search(r"frame dimensions = ([\d]+) x ([\d]+)", infodata)
+                return  int(m.group(1)) # this is the hight assuming the fov is a square
+            except:
+                raise Exception('can not infer fov size, No file found')
+
+    # edited by bereket
+    def _list_files(self, root, depth=1):
+        allFiles = [os.path.join(root, filename) for filename in os.listdir(root)]
+        if depth > 0:
+            _, dirs, _ = next(os.walk(root))
+            for folder in dirs:
+                allFiles.extend(self._list_files(os.path.join(root, folder), depth-1))
+        return allFiles
+
+    def get_image_file_names(self):
+        allFiles = self. _list_files(self.root,depth = 2)
+        extensionList = ['.dax', '.tif', '.tiff', '.zarr', '.zar']
+        return [Path(f) for f in allFiles if any([f.endswith(x) for x in extensionList])]
 
     def _find_filename(self, regex, image_type, fov, imaging_round=None) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
@@ -323,10 +369,12 @@ class ImageDataset:
         return sum(hyb in str(f) for f in self.filenames)  # Check how many filenames have that hyb
 
     def load_fov_positions(self):
-        return load_fov_positions(self.root / "settings/positions.csv")
+        #return load_fov_positions(self.root / "settings/positions.csv")
+        return load_fov_positions(self.merlin_root / "positions.csv")
 
     def has_positions(self):
-        return Path(self.root / "settings/positions.csv").exists()
+        # return Path(self.root / "settings/positions.csv").exists()
+        return Path(self.merlin_root / "positions.csv").exists()
 
     def load_image(
         self, fov: int, zslice: int = None, channel: str = None, max_projection: bool = False, fiducial: bool = False
@@ -343,13 +391,37 @@ class ImageDataset:
             row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         except IndexError:
             raise IndexError(f"Channel {channel} not found in data organization")
-        filename = self.filename(channel, fov)
-        dax = DaxFile(str(filename))
+
+        # try except block to handle missing FOV data
+        try:
+            filename = self.filename(channel, fov)
+            original_filename = filename
+            if config.get('original_raw_dir') != "None":
+                hyb = os.path.basename(filename).split('_')[-3]
+                fov_str = os.path.basename(filename).split('_')[-1].split('.')[0]
+                original_filename = os.path.join(config.get('original_raw_dir'),hyb,
+                                     fov_str , "data" )
+
+
+        except FileNotFoundError:
+             # edited by bereket
+            print(f'data for fov {fov} does not exist, returning empty array')
+            return np.array([])
+
+        # check if it is .zarr or .dax
+        if os.path.splitext(filename)[-1] == '.zarr':
+            imageReader = ZarrFile(str(original_filename),str(filename))
+        else:
+            imageReader = DaxFile(str(original_filename))
+
+        # load in the pixel size from .inf
+        self.fov_size_pixel = imageReader.fileinfo("height")
+
         if fiducial:
-            return dax.frame(row["fiducialFrame"])
+            return imageReader.frame(row["fiducialFrame"])
         if zslice is not None:
-            return dax.frame(row["frame"][zslice])
-        imgstack = np.array([dax.frame(frame) for frame in row["frame"]])
+            return imageReader.frame(row["frame"][zslice])
+        imgstack = np.array([imageReader.frame(frame) for frame in row["frame"]])
         if max_projection:
             return imgstack.max(axis=0)
         return imgstack
@@ -477,3 +549,110 @@ class DaxFile:
         yr = (center[1] - volume[1], center[1] + volume[1])
         xr = (center[2] - volume[2], center[2] + volume[2])
         return self.block_range(zr=zr, yr=yr, xr=xr, channel=channel)
+
+class ZarrFile:
+    """Loads data from a Zarr image file."""
+
+    def __init__(self, original_filename: str,merlin_filename: str, num_channels: Optional[int] = None) -> None:
+        """Note: If num_channels=None, the channel and zslice functions will not work."""
+        self.original_filename = original_filename # filename of the original raw data before pooling
+        self.merlin_filename = merlin_filename
+        self.num_channels = num_channels
+        self._info: Dict[str, int] = {}
+        self.zarr = zarr.open(original_filename,mode = "r")
+        self.number_frames, self.image_width, self.image_height = self.zarr.shape
+
+    def frame(self, frame_number):
+        """
+        Load a frame & return it as a np array.
+        """
+        return self.zarr[frame_number, :, :]
+
+    def fileinfo(self, tag: str) -> int:
+        """Get a property from the .inf associated file."""
+        if not self._info:
+            self.load_fileinfo()
+        return self._info[tag]
+
+    def load_fileinfo(self) -> None:
+        """Load the .inf associated file and parse the info."""
+        with open(self.merlin_filename.replace(".zarr", ".inf"), encoding="utf8") as f:
+            infodata = f.read()
+        self._info = {}
+        m = re.search(r"frame dimensions = ([\d]+) x ([\d]+)", infodata)
+        self._info["height"] = int(m.group(1))
+        self._info["width"] = int(m.group(2))
+        m = re.search(r"number of frames = ([\d]+)", infodata)
+        self._info["frames"] = int(m.group(1))
+        m = re.search(r" (big|little) endian", infodata)
+        self._info["endian"] = 1 if m.group(1) == "big" else 0
+
+    def zslice(self, zslice: int, channel: Optional[int] = None) -> np.ndarray:
+        """Return a z-slice of the image.
+
+        If channel is None, returns a 3D array with all channels, otherwise returns
+        a 2D array with the given channel.
+        """
+        if self.num_channels is None:
+            raise Exception("num_channels must be specified to use this function")
+        if channel is None:
+            return self.zarr[
+                   zslice * self.num_channels: zslice * self.num_channels + self.num_channels,
+                   :,
+                   :,
+                   ]
+        return self.zarr[channel + zslice * self.num_channels, :, :]
+
+    def max_projection(self, channel: int) -> np.ndarray:
+        """Return a max projection across z-slices of the given channel."""
+        return np.max(self.zarr[channel :: self.num_channels, :, :], axis=0)
+
+    def block_range(
+        self,
+        xr: Optional[Sequence[int]] = None,
+        yr: Optional[Sequence[int]] = None,
+        zr: Optional[Sequence[int]] = None,
+        channel: Optional[int] = None,
+    ):
+        """Return a 3D block of the image specific by the given x, y, and z ranges."""
+        if self.num_channels is None:
+            raise Exception("num_channels must be specified to use this function")
+        if xr is None:
+            xr = (0, self.fileinfo("width"))
+        if yr is None:
+            yr = (0, self.fileinfo("height"))
+        if zr is None:
+            zr = (0, self.fileinfo("frames"))
+        if xr[0] < 0:
+            xr = (0, xr[1])
+        if yr[0] < 0:
+            yr = (0, yr[1])
+        if zr[0] < 0:
+            zr = (0, zr[1])
+        if channel is None:
+            zslice = slice(self.num_channels * zr[0], self.num_channels * (zr[1] + 1))
+        else:
+            zslice = slice(
+                self.num_channels * zr[0] + channel,
+                self.num_channels * (zr[1] + 1) + channel,
+                self.num_channels,
+            )
+        yslice = slice(yr[0], yr[1] + 1)
+        xslice = slice(xr[0], xr[1] + 1)
+        return self.zarr[zslice, yslice, xslice], (zslice, yslice, xslice)
+
+    def block(
+        self,
+        center: Sequence[int],
+        volume: Sequence[int],
+        channel: Optional[int] = None,
+    ):
+        """Return a 3D block of the image specified by the given center and volume.
+
+        The volume specifies the radius of the block in each dimension.
+        """
+        zr = (center[0] - volume[0], center[0] + volume[0])
+        yr = (center[1] - volume[1], center[1] + volume[1])
+        xr = (center[2] - volume[2], center[2] + volume[2])
+        return self.block_range(zr=zr, yr=yr, xr=xr, channel=channel)
+

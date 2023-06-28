@@ -90,12 +90,12 @@ for bit in range(1, bits + 1):
     print_row(bit, name, hyb, color, frames, zpos)
 
 
-name = "PolyT"
-hyb = 0
-color = 488
-frames = str(list(range(3, n_frames, 5)))
-zpos = str(list(range(0, zstacks)))
-print_row("", name, hyb, color, frames, zpos)
+#name = "PolyT"
+#hyb = 0
+#color = 488
+#frames = str(list(range(3, n_frames, 5)))
+#zpos = str(list(range(0, zstacks)))
+#print_row("", name, hyb, color, frames, zpos)
 
 name = "DAPI"
 hyb = 0

@@ -14,7 +14,7 @@ import pandas as pd
 from . import stats
 
 
-def create_scanpy_object(analysis, name=None, positions=None, codebook=None, keep_empty_cells=True) -> sc.AnnData:
+def create_scanpy_object(analysis,*,name=None, positions=None, codebook=None, keep_empty_cells=True) -> sc.AnnData:
     cellgene = analysis.load_cell_by_gene_table()
     celldata = analysis.load_cell_metadata()
     celldata.index = celldata.index.astype(str)
@@ -50,13 +50,13 @@ def create_scanpy_object(analysis, name=None, positions=None, codebook=None, kee
         adata.obs["total_counts"] / len(adata.var_names)
     )
     adata.obs["counts_per_volume"] = adata.obs["total_counts"] / adata.obs["volume"]
-    if codebook:
+    if not isinstance(codebook,type(None)):
         adata.varm["codebook"] = codebook.set_index("name").loc[adata.var_names].filter(like="bit").to_numpy()
         for bit in range(adata.varm["codebook"].shape[1]):
             adata.obs[f"bit{bit+1}"] = adata[:, adata.varm["codebook"][:, bit] == 1].X.sum(axis=1)
-    if positions:
+    if not isinstance(positions,type(None)):
         adata.uns["fov_positions"] = positions.to_numpy()
-    if name:
+    if not isinstance(name,type(None)):
         adata.uns["dataset_name"] = name
     else:
         adata.uns["dataset_name"] = analysis.root.name

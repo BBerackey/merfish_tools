@@ -56,6 +56,8 @@ config = {
     "transpose_barcodes": False,
     "flip_barcodes": False,
     "scale": 1,
+    "segmentation_channel":"PolyT", # this will set the default segmentation channel to PolyT
+    "original_raw_dir": "None"
 }
 
 
@@ -68,7 +70,7 @@ def set(key: str, value):
     if key in ["merlin_folder", "image_folder", "segmentation_folder", "output_folder"]:
         config[key] = Path(value)
         if key == "output_folder":
-            get(key).mkdir(exist_ok=True, parents=True)
+            get(key).mkdir(exist_ok=True)#, parents=True)
     else:
         config[key] = value
 
@@ -84,8 +86,7 @@ def update(settings: dict) -> None:
 
 def load_from_file(config_file: str) -> None:
     with open(config_file) as conf:
-        config.update(json.loads(conf.read()))
-
+        update(json.loads(conf.read()))
 
 def load(args):
     if args.config_file:
