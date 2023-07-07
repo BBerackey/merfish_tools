@@ -213,6 +213,9 @@ class CellSegmentation:
     def find_overlapping_cells(self) -> List[set]:
         """Identify the cells overlapping FOVs that are the same cell."""
 
+        import pdb
+        pdb.set_trace()
+
         pairs = set()
         for a, b in tqdm(self.positions.overlaps, desc="Linking cells in overlaps"):
             # Get portions of masks that overlap
@@ -224,6 +227,7 @@ class CellSegmentation:
             elif (len(self[a.fov].shape) == 3) & (len(self[b.fov].shape) == 3):
                 strip_a = self[a.fov][:, a.xslice, a.yslice]
                 strip_b = self[b.fov][:, b.xslice, b.yslice]
+                DAPI_a = self.imagedata.load_image(int(a.fov), zslice=10, channel=self.channel)
             else:
                 continue  # if any of the above conditions are not met, strip_a and strip_b
                          # do not exit so just continue to next loop
@@ -337,8 +341,8 @@ class CellSegmentation:
     def __add_linked_volume(self, table) -> None:
         table["nonoverlap_volume"] = table["fov_volume"] - table["overlap_volume"]
         table["volume"] = np.nan
-        import pdb
-        pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
 
         for links in tqdm(self.linked_cells, desc="Combining cell volumes in overlaps"):
             group = table[table.index.isin(links)]

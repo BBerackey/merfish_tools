@@ -1,11 +1,11 @@
 {
     "merlin_folder": "D:/Bereket/Merfish_tools/MERlin_test_run/custom_rig_decoding_test/results/RzA3A6",
-    "image_folder": "D:/Bereket/Merfish_tools/MERlin_test_run/custom_rig_decoding_test/RzA3A6",
+    "image_folder": "T:/Lab/MERFISH_Imaging_data/06_18_2023_RzA3A6_1_hemi",
     "segmentation_folder": "D:/Bereket/Merfish_tools/MERlin_test_run/custom_rig_decoding_test/results/RzA3A6/Segmentation",
     "output_folder": "D:/Bereket/Merfish_tools/MERlin_test_run/custom_rig_decoding_test/post_process",
     "segmentation_name": "MERlin_test_custom_rig",
     "segmentation_channel": "DAPI",
-    "original_raw_dir": "T:/Lab/MERFISH_Imaging_data/06_18_2023_RzA3A6_1_hemi",
+    "original_raw_dir": "None",
     "minimum_cell_volume": 2000,
     "maximum_cell_volume": 3,
     "barcode_colors": [

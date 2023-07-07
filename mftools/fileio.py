@@ -348,7 +348,8 @@ class ImageDataset:
     def _find_filename(self, regex, image_type, fov, imaging_round=None) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
         for file in self.filenames:
-            match = regex.search(str(file.name))
+            #match = regex.search(str(file.name))
+            match = regex.search(str(file))
             if match is not None:
                 props = match.groupdict()
                 if "imageType" in props and props["imageType"] != image_type:
@@ -387,6 +388,9 @@ class ImageDataset:
         a 2D max projection along the z-axis is returned, depending on the
         max_projection parameter.
         """
+        import pdb
+        pdb.set_trace()
+
         try:
             row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         except IndexError:
@@ -401,6 +405,9 @@ class ImageDataset:
                 fov_str = os.path.basename(filename).split('_')[-1].split('.')[0]
                 original_filename = os.path.join(config.get('original_raw_dir'),hyb,
                                      fov_str , "data" )
+            else:
+                fov_Str = os.path.basename(original_filename).split("__")[-1].split('.')[0]
+                original_filename = os.path.join(os.path.dirname(original_filename),fov_Str,'data')
 
 
         except FileNotFoundError:

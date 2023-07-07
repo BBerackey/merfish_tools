@@ -200,7 +200,7 @@ def calculate_global_coordinates(barcodes: pd.DataFrame, positions: pd.DataFrame
     barcodes[["global_x", "global_y"]] = barcodes.groupby("fov", group_keys=False).apply(convert_to_global)
 
 
-def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, flip_y=True,fov_size_pxl = 2048):
+def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=False, flip_y=False,fov_size_pxl = 2048):
     for fov in tqdm(np.unique(barcodes["fov"]), desc="Assigning barcodes to cells"):
         group = barcodes.loc[barcodes["fov"] == fov]
         if drifts is not None:
@@ -224,9 +224,9 @@ def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, 
                                        # better to convert it to int
             # TODO: Remove hard-coding of scale
             z = (group["z"].round() / 6.333333).astype(int)
-            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][z, x, y] + 10000 * int(fov)
+            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][z, y, x] + 10000 * int(fov)
         else:
-            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][x, y] + 10000 * int(fov)
+            barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][y, x] + 10000 * int(fov)
     barcodes.loc[barcodes["cell_id"] % 10000 == 0, "cell_id"] = 0
     barcodes["cell_id"] = barcodes["cell_id"].astype(int)
     stats.set("Barcodes assigned to cells", len(barcodes[barcodes["cell_id"] != 0]))
