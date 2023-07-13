@@ -78,11 +78,14 @@ class FOVPositions:
     def local_to_global_coordinates(self, x, y, fov):
         # global_x = self.fov_size * x / self.fov_size_pxl + np.array(self.positions.loc[fov]["y"])
         # global_y = self.fov_size * y / self.fov_size_pxl - np.array(self.positions.loc[fov]["x"])
-        import pdb
-        pdb.set_trace()
+
         micron_pxl_ratio = self.fov_size / self.fov_size_pxl
-        global_x = -1*micron_pxl_ratio*x + (np.array(self.positions.loc[fov]["y"]) + self.fov_size/2)
-        global_y = micron_pxl_ratio * y + (np.array(self.positions.loc[fov]["x"]) - self.fov_size / 2)
+        # global_x = -1*micron_pxl_ratio*x + (np.array(self.positions.loc[fov]["y"]) + self.fov_size/2)
+        # global_y = micron_pxl_ratio * y + (np.array(self.positions.loc[fov]["x"]) - self.fov_size / 2)
+
+        # global_y = micron_pxl_ratio * y + (np.array(self.positions.loc[fov]["y"]) - self.fov_size/2)
+        global_y = micron_pxl_ratio * y + (np.array(self.positions.loc[fov]["y"]) + self.fov_size / 2)
+        global_x = micron_pxl_ratio * (self.fov_size_pxl - x) + (np.array(self.positions.loc[fov]["x"]) + self.fov_size/2)
         # global_y is global coord for pixel y and global_x is global coordinate pixel x
         return global_x, global_y
 
@@ -104,8 +107,8 @@ class FOVPositions:
                 _get_slice = functools.partial(get_slice, fovsize=self.fov_size,fov_size_pxl = self.fov_size_pxl, get_trim=get_trim)
                 overlaps.append(
                     [
-                        Overlap(i, _get_slice(-diff[1]), _get_slice(-diff[0])), # changed diff[0] -> diff[1] and vice vera to match the coord system of microscope
-                        Overlap(fov, _get_slice(-diff[1]), _get_slice(diff[0])),
+                        Overlap(i, _get_slice(-diff[1]), _get_slice(diff[0])), # changed diff[0] -> diff[1] and vice vera to match the coord system of microscope
+                        Overlap(fov, _get_slice(diff[1]), _get_slice(-diff[0])),
                     ]
                 )
         return overlaps

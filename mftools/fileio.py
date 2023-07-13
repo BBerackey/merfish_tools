@@ -35,6 +35,7 @@ def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
         # Cellpose numpy output
         # We prefer the npy file so we don't need the PIL library
         f"Conv_zscan_H0_F_0*{fov}_seg.npy",  # Homebuilt microscope filenames
+        f"Conv_zscan__0*{fov}_seg.npy",
         f"Conv_zscan_H1_F_0*{fov}_seg.npy", # in case H1 is the first hyb and is used as reference
         f"stack_prestain_0*{fov}_seg.npy",  # MERSCOPE filenames
         # Try the png cellpose output if the numpy files aren't there
@@ -134,7 +135,7 @@ def load_fov_positions(path: Path) -> pd.DataFrame:
     Returns:
         A pandas DataFrame containing the FOV positions.
     """
-    positions = pd.read_csv(path, header=None)
+    positions = pd.read_csv(path, header=None,index_col=0)
     positions.columns = ["x", "y"]
     return positions
 
@@ -297,8 +298,16 @@ class MerlinOutput:
         """Load the data organization table."""
         path = self.root / "dataorganization.csv"
         return load_data_organization(path)
-
-
+    def load_fov_list(self) -> list:
+        FOV_list_path = os.path.join(os.path.dirname(
+            os.path.dirname(self.root))
+            , 'analysis_parameters', "fov_list", 'fov_list.txt')
+        if os.path.exists(FOV_list_path):
+            with open(FOV_list_path) as f:
+                fov_list = [int(fov.strip()) for fov in f.readlines()]
+            return  fov_list
+        else:
+            return np.arange(len(self.load_fov_positions())).tolist() # else return the list of whole FOVs
 class ImageDataset:
     def __init__(self, folderpath: str, merlin_folderpath: str,data_organization: str = None) -> None:
         self.root = Path(folderpath)
@@ -388,8 +397,6 @@ class ImageDataset:
         a 2D max projection along the z-axis is returned, depending on the
         max_projection parameter.
         """
-        import pdb
-        pdb.set_trace()
 
         try:
             row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match

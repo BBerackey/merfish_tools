@@ -28,7 +28,13 @@ def create_barcode_table(merlin_result, masks, cell_links):
     # plotting.fov_error_spatial(per_fov_error, positions)
     # plotting.spatial_transcripts_per_fov(bcs, positions)
     # barcodes.mark_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True))
-    barcodes.trim_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True),fov_size_pxl= masks.positions.fov_size_pxl)
+    fov_list = merlin_result.load_fov_list()
+    trim_fov_overlaps = masks.positions.find_fov_overlaps(get_trim=True)
+    trim_fov_overlaps = [fov_pairs  for fov_pairs in trim_fov_overlaps if (int(fov_pairs[0].fov) in fov_list) &
+                                                                           (int(fov_pairs[1].fov) in fov_list)] # filter the list of fov overlaps to include
+                                                                             # to only include overlap info of FOVs in fov_list
+
+    barcodes.trim_barcodes_in_overlaps(bcs, trim_fov_overlaps,fov_size_pxl= masks.positions.fov_size_pxl)
     barcodes.assign_to_cells(bcs, masks,fov_size_pxl = masks.positions.fov_size_pxl)
     barcodes.calculate_global_coordinates(
         bcs, masks.positions.positions,
@@ -63,6 +69,10 @@ def analyze_experiment():
 
     positions = merlin_result.load_fov_positions()
     n_fovs = len(positions)
+
+    if len(masks.fov_list) > 0:
+        n_fovs = len(masks.fov_list)
+
     stats.set("FOVs", n_fovs)
 
     # f os.path.exists(config.path("cell_metadata.csv")):

@@ -15,9 +15,21 @@ from . import stats
 
 
 def create_scanpy_object(analysis,*,name=None, positions=None, codebook=None, keep_empty_cells=True) -> sc.AnnData:
+
     cellgene = analysis.load_cell_by_gene_table()
     celldata = analysis.load_cell_metadata()
+
+    # make sure the cellgene and celldata have index of int64
+    if celldata.index.dtype != celldata.index.dtype:
+        celldata.index  = celldata.index.astype(int)
+        cellgene.index = cellgene.index.astype(int)
+
+    #TODO: check why some index can be duplicated.
+    # remove duplicated cell index
+    celldata = celldata[~celldata.index.duplicated()]
+
     celldata.index = celldata.index.astype(str)
+
     if keep_empty_cells:
         empty_cells = pd.DataFrame(
             [

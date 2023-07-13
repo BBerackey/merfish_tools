@@ -8,6 +8,9 @@ from cellpose import models as cpmodels, utils as cputils
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import os
+from functools import partial
+
 from skimage.segmentation import expand_labels
 from skimage.measure import regionprops_table
 
@@ -108,6 +111,15 @@ class CellSegmentation:
             if not self.positions and imagedata.has_positions():
                 fov_size_pxl = imagedata.fov_size_pixel
                 self.positions = images.FOVPositions(positions=imagedata.load_fov_positions(),fov_size_pxl=fov_size_pxl,fov_size=0.108*fov_size_pxl) # 0.108 is micron per pixel size
+        # check and read if there is FOV list provided
+        self.fov_list = []
+        FOV_list_path = os.path.join(os.path.dirname(
+            os.path.dirname(config.get("merlin_folder")))
+            , 'analysis_parameters', "fov_list", 'fov_list.txt')
+        if os.path.exists(FOV_list_path):
+            with open(FOV_list_path) as f:
+                self.fov_list = [int(fov.strip()) for fov in f.readlines()]
+
         self.masks = {}
 
     # method for deleting cached method
@@ -128,6 +140,7 @@ class CellSegmentation:
             self.masks = {}
         if key not in self.masks:
             try:
+
                 self.masks[key] = fileio.load_mask(self.path, key)
             except (FileNotFoundError, AttributeError):
                 mask = self.segment_fov(key)
@@ -144,17 +157,24 @@ class CellSegmentation:
         return self.masks[key]
 
     def __iter__(self):
-        self.i = 0
-        return self
+       # first check if FOV_list is given if not initialize a variable self.i =0 and return that to _next_
+       # else read the FOV_list and yield the mask until the end.
 
-    def __next__(self) -> np.ndarray:
+       if len(self.fov_list) == 0:
+            self.i = 0
+            return self
+       else:
+           for fov in self.fov_list:
+               yield fov,self[fov] # return the fov index and mask
+
+    def __next__(self) -> tuple:
 
         i = self.i
         self.i += 1
         if self.i > self.positions.positions.shape[0]: # stop the iteration if the index number (i.f. fov number) is
                                                  # larger than the number of positions which is the total number of FOVs
             raise StopIteration
-        return self[i]
+        return i,self[i] # return the fov index and mask
 
 
     @cached_property
@@ -213,11 +233,13 @@ class CellSegmentation:
     def find_overlapping_cells(self) -> List[set]:
         """Identify the cells overlapping FOVs that are the same cell."""
 
-        import pdb
-        pdb.set_trace()
 
         pairs = set()
-        for a, b in tqdm(self.positions.overlaps, desc="Linking cells in overlaps"):
+        for a,b in tqdm(self.positions.overlaps, desc="Linking cells in overlaps"):
+
+            # only consider the fovs listed fov list
+            if (int(a.fov) not in self.fov_list) | (int(b.fov) not in self.fov_list):
+                continue
             # Get portions of masks that overlap
             if (len(self[a.fov].shape) == 2) & (len(self[b.fov].shape) == 2): # this condition will also serve
                                                                             # to filter out empty mask, i.e. array([])
@@ -227,7 +249,6 @@ class CellSegmentation:
             elif (len(self[a.fov].shape) == 3) & (len(self[b.fov].shape) == 3):
                 strip_a = self[a.fov][:, a.xslice, a.yslice]
                 strip_b = self[b.fov][:, b.xslice, b.yslice]
-                DAPI_a = self.imagedata.load_image(int(a.fov), zslice=10, channel=self.channel)
             else:
                 continue  # if any of the above conditions are not met, strip_a and strip_b
                          # do not exit so just continue to next loop
@@ -280,29 +301,33 @@ class CellSegmentation:
         return mask
 
     def make_metadata_table(self) -> pd.DataFrame:
-        def get_centers(inds):
-            return np.mean(np.unravel_index(inds, shape=self[0].shape), axis=1)
+        def get_centers(mask_shape,inds):
+            return np.mean(np.unravel_index(inds, shape=mask_shape), axis=1)
+            #return np.mean(np.unravel_index(inds, shape=self[0].shape), axis=1)
 
         rows = []
-        for fov, mask in tqdm(enumerate(self), desc="Getting cell volumes and centers"):
+        mask_shape = None
+        for fov, mask in tqdm(self, desc="Getting cell volumes and centers"):
             # first check if the mask is real (i.e.) mask of recorded FOV
             if mask.size == 0: # if the size is zero => no data for that fov, so continue to next iteration
                 continue
-
+            if isinstance(mask_shape,type(None)):
+                mask_shape = mask.shape
             # Some numpy tricks here. Confusing but fast.
             flat = mask.flatten()
             cells, split_inds, volumes = np.unique(np.sort(flat), return_index=True, return_counts=True)
             cell_inds = np.split(flat.argsort(), split_inds)[2:]
-            centers = list(map(get_centers, cell_inds))
+            centers = list(map(partial(get_centers,mask_shape), cell_inds))
             if len(centers) > 0:
                 coords = np.stack(centers, axis=0)
                 row = pd.DataFrame([cells[1:], volumes[1:]] + coords.T.tolist()).T
                 row["fov"] = fov
                 rows.append(row)
+
         table = pd.concat(rows)
-        if len(self[0].shape) == 2:
+        if len(mask_shape) == 2:
             columns = ["fov_cell_id", "fov_volume", "fov_y", "fov_x", "fov"]
-        elif len(self[0].shape) == 3:
+        elif len(mask_shape) == 3:
             columns = ["fov_cell_id", "fov_volume", "fov_z", "fov_y", "fov_x", "fov"]
         table.columns = columns
         table["cell_id"] = (table["fov"] * 10000 + table["fov_cell_id"]).astype(int)
@@ -324,8 +349,10 @@ class CellSegmentation:
     def get_overlap_volume(self) -> None:
         fov_overlaps = defaultdict(list)
         for a, b in self.positions.overlaps:
-            fov_overlaps[a.fov].append(a)
-            fov_overlaps[b.fov].append(b)
+            # consider the FOVs only in the fov list
+            if (int(a.fov) in self.fov_list) & (int(b.fov) in self.fov_list):
+                fov_overlaps[a.fov].append(a)
+                fov_overlaps[b.fov].append(b)
         cells = []
         volumes = []
         for fov, fov_over in tqdm(fov_overlaps.items(), desc="Calculating overlap volumes"):
@@ -341,8 +368,6 @@ class CellSegmentation:
     def __add_linked_volume(self, table) -> None:
         table["nonoverlap_volume"] = table["fov_volume"] - table["overlap_volume"]
         table["volume"] = np.nan
-        # import pdb
-        # pdb.set_trace()
 
         for links in tqdm(self.linked_cells, desc="Combining cell volumes in overlaps"):
             group = table[table.index.isin(links)]

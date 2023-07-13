@@ -166,11 +166,11 @@ def make_table(merlin_result: fileio.MerlinOutput, codebook: pd.DataFrame) -> pd
     neighbors = faiss.IndexFlatL2(X.shape[1])
     neighbors.add(X)
     dfs = []
-    positions = merlin_result.load_fov_positions()
+    fov_list = merlin_result.load_fov_list()
     # for fov in tqdm(range(merlin_result.n_fovs()), desc="Preparing barcodes"):
     # Note: it is better to calculate number of fov based on length of positions.csv file
     # rather than number of .dax files, since there could be fovs not images due to focus lock problem
-    for fov in tqdm(range(len(positions)), desc="Preparing barcodes"):
+    for fov in tqdm(fov_list, desc="Preparing barcodes"):
         try:
             #TODO: comeup with a format the generaizes or improve way to load
             # different file naming scheme
@@ -191,10 +191,17 @@ def calculate_global_coordinates(barcodes: pd.DataFrame, positions: pd.DataFrame
         """Calculate the global coordinates for a single FOV."""
         # note the inner function can access the namespace of the outer function
         fov = int(group.iloc[0]["fov"])
-        ypos = positions.loc[fov][0]
-        xpos = positions.loc[fov][1]
-        group["global_y"] = fov_size * (fov_size_pxl - group["y"]) / fov_size_pxl + ypos
-        group["global_x"] = fov_size * group["x"] / fov_size_pxl + xpos
+        ypos = positions.loc[fov][1] # this is actual pos['y']
+        xpos = positions.loc[fov][0] # this is actual pos['x']
+        # group["global_y"] = fov_size * (fov_size_pxl - group["y"]) / fov_size_pxl + ypos
+        # group["global_x"] = fov_size * group["x"] / fov_size_pxl + xpos
+
+        # import pdb
+        # pdb.set_trace()
+        micron_pxl_ratio = fov_size/fov_size_pxl
+        # # group["global_y"] = micron_pxl_ratio * group["y"] + (ypos - fov_size/2)
+        group['global_y'] = micron_pxl_ratio*group["y"] + (ypos + fov_size/2)
+        group["global_x"] = micron_pxl_ratio * (fov_size_pxl - group["x"]) + (xpos + fov_size/2)
         return group[["global_x", "global_y"]]
 
     barcodes[["global_x", "global_y"]] = barcodes.groupby("fov", group_keys=False).apply(convert_to_global)
@@ -223,7 +230,8 @@ def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=False,
                                        # also since we are using it in arthmatic operation below
                                        # better to convert it to int
             # TODO: Remove hard-coding of scale
-            z = (group["z"].round() / 6.333333).astype(int)
+            # z = (group["z"].round() / 6.333333).astype(int)
+            z = group["z"].round().astype(int)
             barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][z, y, x] + 10000 * int(fov)
         else:
             barcodes.loc[barcodes["fov"] == fov, "cell_id"] = masks[int(fov)][y, x] + 10000 * int(fov)
@@ -246,6 +254,10 @@ def trim_barcodes_in_overlaps(barcodes, trim_overlaps,fov_size_pxl = 2048):
     xstops = defaultdict(list)
     ystarts = defaultdict(list)
     ystops = defaultdict(list)
+
+    # import pdb
+    # pdb.set_trace()
+
     for pair in trim_overlaps:
         for overlap in pair:
             if overlap.xslice.start:
@@ -257,13 +269,13 @@ def trim_barcodes_in_overlaps(barcodes, trim_overlaps,fov_size_pxl = 2048):
             if overlap.yslice.stop:
                 ystops[fov_size_pxl // config.get("scale") + overlap.yslice.stop].append(overlap.fov)
     for xstart, fovs in xstarts.items():
-        barcodes = barcodes[(~barcodes["fov"].isin(fovs)) | (barcodes["x"] // config.get("scale") <= xstart)]
+        barcodes = barcodes[(barcodes["fov"].isin(fovs)) & (barcodes["y"] // config.get("scale") <= xstart)]
     for ystart, fovs in ystarts.items():
-        barcodes = barcodes[(~barcodes["fov"].isin(fovs)) | (barcodes["y"] // config.get("scale") <= ystart)]
+        barcodes = barcodes[(barcodes["fov"].isin(fovs)) & (barcodes["x"] // config.get("scale") <= ystart)]
     for xstop, fovs in xstops.items():
-        barcodes = barcodes[(~barcodes["fov"].isin(fovs)) | (barcodes["x"] // config.get("scale") >= xstop)]
+        barcodes = barcodes[(barcodes["fov"].isin(fovs)) & (barcodes["y"] // config.get("scale") >= xstop)]
     for ystop, fovs in ystops.items():
-        barcodes = barcodes[(~barcodes["fov"].isin(fovs)) | (barcodes["y"] // config.get("scale") >= ystop)]
+        barcodes = barcodes[(barcodes["fov"].isin(fovs)) & (barcodes["x"] // config.get("scale") >= ystop)]
     return barcodes
 
 
@@ -280,9 +292,9 @@ def create_cell_by_gene_table(barcodes, drop_blank=False) -> pd.DataFrame:
 
 def count_unfiltered_barcodes(merlin_result: fileio.MerlinOutput) -> int:
     """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
-    positions = merlin_result.load_fov_positions()
+    fov_list = merlin_result.load_fov_list()
     raw_count = 0
-    for fov in tqdm(range(len(positions)), desc="Counting unfiltered barcodes"):
+    for fov in tqdm(fov_list, desc="Counting unfiltered barcodes"):
         # try__except statement to handle missing fov data
         try:
             fov_raw_count = merlin_result.count_raw_barcodes(fov)

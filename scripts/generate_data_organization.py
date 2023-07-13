@@ -56,9 +56,10 @@ zstacks = args.zstacks
 fiducial_color = "405"  # MERlin doesn't seem to use this for anything, so no need to change it
 columns = "channelName,readoutName,imageType,imageRegExp,bitNumber,imagingRound,color,frame,zPos,fiducialImageType,fiducialRegExp,fiducialImagingRound,fiducialFrame,fiducialColor"
 image_type = "Conv_zscan"
-regexp = r"(?P<imageType>[\w|-]+)_H(?P<imagingRound>[0-9]+)_F_(?P<fov>[0-9]+)"
+#regexp = r"(?P<imageType>[\w|-]+)_H(?P<imagingRound>[0-9]+)_F_(?P<fov>[0-9]+)"
+regexp = r"H(?P<imagingRound>[0-9]+)\\(?P<imageType>[\w|-]+)__(?P<fov>[0-9]+)"
 n_frames = zstacks * (len(colors) + 1)  # +1 for fiducial channel
-
+fiducialFrames = str(list(range(len(colors)+1, n_frames + 1, len(colors)+1)))
 
 def print_row(bit, name, hyb, color, frames, zpos):
     row = [
@@ -74,7 +75,7 @@ def print_row(bit, name, hyb, color, frames, zpos):
         image_type,
         regexp,
         hyb,
-        len(colors),
+        f'"{fiducialFrames}"',#len(colors),
         fiducial_color,
     ]
     print(",".join([str(x) for x in row]))
@@ -85,7 +86,8 @@ for bit in range(1, bits + 1):
     name = f"bit{bit}"
     hyb = str(((bit - 1) // len(colors)) + 1)
     color = colors[(bit - 1) % len(colors)]
-    frames = str(list(range((bit - 1) % len(colors), n_frames, len(colors) + 1)))
+    #frames = str(list(range((bit - 1) % len(colors), n_frames, len(colors) + 1)))
+    frames = str(list(range(((bit - 1) % len(colors))+1, n_frames + 1, len(colors) + 1)))
     zpos = str(list(range(0, zstacks)))
     print_row(bit, name, hyb, color, frames, zpos)
 
@@ -98,8 +100,8 @@ for bit in range(1, bits + 1):
 #print_row("", name, hyb, color, frames, zpos)
 
 name = "DAPI"
-hyb = 0
+hyb = 1
 color = 405
-frames = str(list(range(4, n_frames, 5)))
+frames = fiducialFrames
 zpos = str(list(range(0, zstacks)))
 print_row("", name, hyb, color, frames, zpos)
